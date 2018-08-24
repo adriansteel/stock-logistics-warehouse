@@ -6,15 +6,15 @@
 from odoo import models, api
 
 
-class ProductProduct(models.Model):
-    _inherit = 'product.product'
+class ProductTemplate(models.Model):
+    _inherit = 'product.template'
 
     @api.multi
     @api.depends('virtual_available', 'incoming_qty')
     def _compute_immediately_usable_qty(self):
         """Ignore the incoming goods in the quantity available to promise
 
-        This is the same implementation as for templates."""
-        super(ProductProduct, self)._compute_immediately_usable_qty()
-        for prod in self:
-            prod.immediately_usable_qty -= prod.incoming_qty
+        This is the same implementation as for variants."""
+        super(ProductTemplate, self)._compute_immediately_usable_qty()
+        for tmpl in self:
+            tmpl.immediately_usable_qty -= tmpl.incoming_qty

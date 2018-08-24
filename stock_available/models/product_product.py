@@ -5,16 +5,6 @@
 
 from odoo import models, fields, api
 from odoo.addons import decimal_precision as dp
-import operator as py_operator
-
-OPERATORS = {
-    '<': py_operator.lt,
-    '>': py_operator.gt,
-    '<=': py_operator.le,
-    '>=': py_operator.ge,
-    '=': py_operator.eq,
-    '!=': py_operator.ne
-}
 
 
 class ProductProduct(models.Model):
@@ -26,55 +16,97 @@ class ProductProduct(models.Model):
     _inherit = 'product.product'
 
     @api.multi
-    def _compute_available_quantities_dict(self):
-        res = {}
-        for product in self:
-            res[product.id] = {
-                'immediately_usable_qty': product.virtual_available,
-                'potential_qty': 0.0
-            }
-        return res
+    @api.depends('virtual_available')
+    def _compute_immediately_usable_qty(self):
+        """No-op implementation of the stock available to promise.
+
+        By default, available to promise = forecasted quantity.
+
+        **Each** sub-module **must** override this method in **both**
+            `product.product` **and** `product.template`, because we can't
+            decide in advance how to compute the template's quantity from the
+            variants.
+        """
+        for prod in self:
+            prod.immediately_usable_qty = prod.virtual_available
 
     @api.multi
-    @api.depends('virtual_available')
-    def _compute_available_quantities(self):
-        res = self._compute_available_quantities_dict()
+    @api.depends()
+    def _compute_potential_qty(self):
+        """Set potential qty to 0.0 to define the field defintion used by
+        other modules to inherit it
+        """
         for product in self:
-            for key, value in res[product.id].iteritems():
-                if hasattr(product, key):
-                    product[key] = value
+            product.potential_qty = 0.0
+
+    @api.multi
+    @api.depends()
+    def _compute_hidden_qty(self):
+        """Set potential qty to 0.0 to define the field defintion used by
+        other modules to inherit it
+        """
+        locations = self.env['stock.location'].search([('x_processing','=',True)])
+        location_ids = []
+        for location in locations:
+            location_ids.append(location.id)
+        for product in self:
+            product.hidden_qty = product.with_context({'location': location_ids}).qty_available
+
+    @api.multi
+    @api.depends()
+    def _compute_dock_qty(self):
+        """Set potential qty to 0.0 to define the field defintion used by
+        other modules to inherit it
+        """
+        locations = self.env['stock.location'].search([('x_dock','=',True)])
+        location_ids = []
+        for location in locations:
+            location_ids.append(location.id)
+        for product in self:
+            product.dock_qty = product.with_context({'location': location_ids}).qty_available
+
+    @api.multi
+    @api.depends()
+    def _compute_return_qty(self):
+        """Set potential qty to 0.0 to define the field defintion used by
+        other modules to inherit it
+        """
+        locations = self.env['stock.location'].search([('x_return','=',True)])
+        location_ids = []
+        for location in locations:
+            location_ids.append(location.id)
+        for product in self:
+            product.dock_qty = product.with_context({'location': location_ids}).qty_available
 
     immediately_usable_qty = fields.Float(
         digits=dp.get_precision('Product Unit of Measure'),
-        compute='_compute_available_quantities',
-        search="_search_immediately_usable_qty",
+        compute='_compute_immediately_usable_qty',
         string='Available to promise',
         help="Stock for this Product that can be safely proposed "
              "for sale to Customers.\n"
              "The definition of this value can be configured to suit "
              "your needs")
     potential_qty = fields.Float(
-        compute='_compute_available_quantities',
+        compute='_compute_potential_qty',
         digits=dp.get_precision('Product Unit of Measure'),
         string='Potential',
         help="Quantity of this Product that could be produced using "
              "the materials already at hand.")
+    hidden_qty = fields.Float(
+        compute='_compute_hidden_qty',
+        digits=dp.get_precision('Product Unit of Measure'),
+        string='Processing',
+        help="Quantity of this Product not currently available.")
 
-    @api.model
-    def _search_immediately_usable_qty(self, operator, value):
-        """
-        Search function for the immediately_usable_qty field.
-        The search is quite similar to the Odoo search about quantity available
-        (addons/stock/models/product.py,253; _search_product_quantity function)
-        :param operator: str
-        :param value: str
-        :return: list of tuple (domain)
-        """
-        products = self.search([])
-        # Force prefetch
-        products.mapped("immediately_usable_qty")
-        product_ids = []
-        for product in products:
-            if OPERATORS[operator](product.immediately_usable_qty, value):
-                product_ids.append(product.id)
-        return [('id', 'in', product_ids)]
+    dock_qty = fields.Float(
+        compute='_compute_dock_qty',
+        digits=dp.get_precision('Product Unit of Measure'),
+        string='On Dock',
+        help="Quantity of this Product currently available On Dock.")
+
+    return_qty = fields.Float(
+        compute='_compute_return_qty',
+        digits=dp.get_precision('Product Unit of Measure'),
+        string='In Returns',
+        help="Quantity of this Product currently available in ADI Returns locations.")
+
